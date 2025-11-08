@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../services/firebase';
-import { collection, query, where, getDocs, addDoc, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, getDoc, doc, updateDoc } from 'firebase/firestore';
 import JobApplicationForm from '../../components/jobs/JobApplicationForm';
 import './StudentDashboard.css';
 
@@ -112,7 +112,10 @@ const StudentDashboard = () => {
           }}
         />;
       case 'profile':
-        return <StudentProfile studentData={userData} />;
+        return <StudentProfile 
+          studentData={userData} 
+          onProfileUpdate={fetchStudentData}
+        />;
       default:
         return <StudentOverview applications={applications} jobs={jobs} />;
     }
@@ -204,20 +207,21 @@ const StudentDashboard = () => {
             setShowJobApplication(false);
             setSelectedJob(null);
           }}
-          onSuccess={(applicationId) => {
+          onSuccess={() => {
             setShowJobApplication(false);
             setSelectedJob(null);
             alert('Application submitted successfully!');
-            // Refresh applications list
             fetchStudentData();
           }}
+          studentId={user.uid}
+          studentData={userData}
         />
       )}
     </div>
   );
 };
 
-// Sub-components for Student Dashboard (all remain exactly the same)
+// Sub-components for Student Dashboard
 const StudentOverview = ({ applications, jobs }) => {
   const stats = {
     totalApplications: applications.length,
@@ -330,8 +334,7 @@ const StudentApplications = ({ applications }) => {
             
             {application.status === 'admitted' && (
               <div className="admission-offer">
-                <p>🎉 Congratulations! You have been admitted to this program.</p>
-                <button className="btn-success">Accept Offer</button>
+                <p> Congratulations! You have been admitted to this program.</p>
               </div>
             )}
           </div>
@@ -506,52 +509,249 @@ const BrowseJobs = ({ jobs, onJobApply }) => {
   );
 };
 
-const StudentProfile = ({ studentData }) => {
+const StudentProfile = ({ studentData, onProfileUpdate }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    phone: '',
+    highSchool: '',
+    graduationYear: '',
+    address: '',
+    dateOfBirth: ''
+  });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (studentData) {
+      setFormData({
+        name: studentData.name || '',
+        phone: studentData.phone || '',
+        highSchool: studentData.highSchool || '',
+        graduationYear: studentData.graduationYear || '',
+        address: studentData.address || '',
+        dateOfBirth: studentData.dateOfBirth || ''
+      });
+    }
+  }, [studentData]);
+
+  const handleEditToggle = () => {
+    setIsEditing(!isEditing);
+  };
+
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      // Update the user document in Firestore
+      const userDocRef = doc(db, 'users', studentData.uid);
+      await updateDoc(userDocRef, {
+        ...formData,
+        updatedAt: new Date()
+      });
+
+      setIsEditing(false);
+      alert('Profile updated successfully!');
+      onProfileUpdate(); // Refresh the data
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Error updating profile. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setFormData({
+      name: studentData.name || '',
+      phone: studentData.phone || '',
+      highSchool: studentData.highSchool || '',
+      graduationYear: studentData.graduationYear || '',
+      address: studentData.address || '',
+      dateOfBirth: studentData.dateOfBirth || ''
+    });
+    setIsEditing(false);
+  };
+
   return (
     <div className="student-profile">
-      <h2>My Profile</h2>
+      <div className="section-header">
+        <h2>My Profile</h2>
+        <button 
+          className={isEditing ? 'btn-secondary' : 'btn-primary'} 
+          onClick={isEditing ? handleCancel : handleEditToggle}
+        >
+          {isEditing ? 'Cancel' : 'Edit Profile'}
+        </button>
+      </div>
       
       <div className="profile-card">
-        <div className="profile-section">
-          <h3>Personal Information</h3>
-          <div className="profile-info">
-            <div className="info-item">
-              <strong>Full Name:</strong>
-              <span>{studentData?.name || 'Not set'}</span>
+        {isEditing ? (
+          <form onSubmit={handleSubmit}>
+            <div className="profile-section">
+              <h3>Personal Information</h3>
+              <div className="profile-info">
+                <div className="form-group">
+                  <label>Full Name *</label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    value={studentData?.email || ''}
+                    disabled
+                    className="form-input disabled"
+                  />
+                  <small>Email cannot be changed</small>
+                </div>
+                <div className="form-group">
+                  <label>Phone Number</label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className="form-input"
+                    placeholder="+266 XXX XXX"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Date of Birth</label>
+                  <input
+                    type="date"
+                    name="dateOfBirth"
+                    value={formData.dateOfBirth}
+                    onChange={handleChange}
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Address</label>
+                  <textarea
+                    name="address"
+                    value={formData.address}
+                    onChange={handleChange}
+                    className="form-input"
+                    rows="3"
+                    placeholder="Enter your current address"
+                  />
+                </div>
+              </div>
             </div>
-            <div className="info-item">
-              <strong>Email:</strong>
-              <span>{studentData?.email}</span>
+            
+            <div className="profile-section">
+              <h3>Academic Information</h3>
+              <div className="profile-info">
+                <div className="form-group">
+                  <label>High School</label>
+                  <input
+                    type="text"
+                    name="highSchool"
+                    value={formData.highSchool}
+                    onChange={handleChange}
+                    className="form-input"
+                    placeholder="Name of your high school"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Graduation Year</label>
+                  <input
+                    type="number"
+                    name="graduationYear"
+                    value={formData.graduationYear}
+                    onChange={handleChange}
+                    className="form-input"
+                    placeholder="YYYY"
+                    min="1900"
+                    max="2030"
+                  />
+                </div>
+              </div>
             </div>
-            <div className="info-item">
-              <strong>Phone:</strong>
-              <span>{studentData?.phone || 'Not provided'}</span>
+            
+            <div className="profile-actions">
+              <button 
+                type="submit" 
+                className="btn-primary" 
+                disabled={loading}
+              >
+                {loading ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={handleCancel}
+              >
+                Cancel
+              </button>
             </div>
-            <div className="info-item">
-              <strong>Student ID:</strong>
-              <span>{studentData?.uid || 'Not assigned'}</span>
+          </form>
+        ) : (
+          <>
+            <div className="profile-section">
+              <h3>Personal Information</h3>
+              <div className="profile-info">
+                <div className="info-item">
+                  <strong>Full Name:</strong>
+                  <span>{studentData?.name || 'Not set'}</span>
+                </div>
+                <div className="info-item">
+                  <strong>Email:</strong>
+                  <span>{studentData?.email}</span>
+                </div>
+                <div className="info-item">
+                  <strong>Phone:</strong>
+                  <span>{studentData?.phone || 'Not provided'}</span>
+                </div>
+                <div className="info-item">
+                  <strong>Date of Birth:</strong>
+                  <span>{studentData?.dateOfBirth || 'Not provided'}</span>
+                </div>
+                <div className="info-item">
+                  <strong>Address:</strong>
+                  <span>{studentData?.address || 'Not provided'}</span>
+                </div>
+                <div className="info-item">
+                  <strong>Student ID:</strong>
+                  <span>{studentData?.uid || 'Not assigned'}</span>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        
-        <div className="profile-section">
-          <h3>Academic Information</h3>
-          <div className="profile-info">
-            <div className="info-item">
-              <strong>High School:</strong>
-              <span>{studentData?.highSchool || 'Not specified'}</span>
+            
+            <div className="profile-section">
+              <h3>Academic Information</h3>
+              <div className="profile-info">
+                <div className="info-item">
+                  <strong>High School:</strong>
+                  <span>{studentData?.highSchool || 'Not specified'}</span>
+                </div>
+                <div className="info-item">
+                  <strong>Graduation Year:</strong>
+                  <span>{studentData?.graduationYear || 'Not specified'}</span>
+                </div>
+              </div>
             </div>
-            <div className="info-item">
-              <strong>Graduation Year:</strong>
-              <span>{studentData?.graduationYear || 'Not specified'}</span>
+            
+            <div className="profile-actions">
+              <button className="btn-secondary">Upload Documents</button>
             </div>
-          </div>
-        </div>
-        
-        <div className="profile-actions">
-          <button className="btn-primary">Edit Profile</button>
-          <button className="btn-secondary">Upload Documents</button>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
