@@ -508,7 +508,6 @@ const BrowseJobs = ({ jobs, onJobApply }) => {
               >
                 Apply Now
               </button>
-              <button className="btn-secondary">Save for Later</button>
             </div>
           </div>
         ))}
@@ -614,7 +613,7 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
               <h3>Personal Information</h3>
               <div className="profile-info">
                 <div className="form-group">
-                  <label>Full Name *</label>
+                  <label>Full Name </label>
                   <input
                     type="text"
                     name="name"
