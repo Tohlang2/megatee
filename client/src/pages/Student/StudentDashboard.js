@@ -1,9 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../services/firebase';
-import { collection, query, where, getDocs, addDoc, getDoc, doc, updateDoc } from 'firebase/firestore';
+import { 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  addDoc, 
+  getDoc, 
+  doc, 
+  updateDoc, 
+  deleteDoc,
+  orderBy,
+  limit
+} from 'firebase/firestore';
 import JobApplicationForm from '../../components/jobs/JobApplicationForm';
 import CourseApplicationForm from '../../components/forms/CourseApplicationForm';
+import AdmissionSelectionModal from '../../components/admissions/AdmissionSelectionModal';
+import DocumentUploadModal from '../../components/documents/DocumentUploadModal';
 import './StudentDashboard.css';
 
 const StudentDashboard = () => {
@@ -13,17 +27,35 @@ const StudentDashboard = () => {
   const [courses, setCourses] = useState([]);
   const [institutions, setInstitutions] = useState([]);
   const [jobs, setJobs] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
   const [showJobApplication, setShowJobApplication] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [showCourseApplication, setShowCourseApplication] = useState(false);
+  const [showAdmissionSelection, setShowAdmissionSelection] = useState(false);
+  const [admissionOffers, setAdmissionOffers] = useState([]);
+  const [showDocumentUpload, setShowDocumentUpload] = useState(false);
+  const [documentType, setDocumentType] = useState('');
   const [loading, setLoading] = useState(true);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   useEffect(() => {
     if (user) {
       fetchStudentData();
+      setupRealTimeListeners();
     }
   }, [user]);
+
+  const setupRealTimeListeners = () => {
+    // This would typically use onSnapshot for real-time updates
+    // For now, we'll refresh data periodically
+    const interval = setInterval(() => {
+      fetchStudentData();
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  };
 
   const fetchStudentData = async () => {
     try {
@@ -32,7 +64,10 @@ const StudentDashboard = () => {
         fetchStudentApplications(),
         fetchCourses(),
         fetchInstitutions(),
-        fetchJobs()
+        fetchJobs(),
+        fetchNotifications(),
+        fetchDocuments(),
+        checkAdmissionOffers()
       ]);
     } catch (error) {
       console.error('Error fetching student data:', error);
@@ -42,13 +77,16 @@ const StudentDashboard = () => {
   };
 
   const fetchStudentApplications = async () => {
-    const q = query(collection(db, 'applications'), where('studentId', '==', user.uid));
+    const q = query(
+      collection(db, 'applications'), 
+      where('studentId', '==', user.uid),
+      orderBy('appliedAt', 'desc')
+    );
     const querySnapshot = await getDocs(q);
     const applicationsList = await Promise.all(
       querySnapshot.docs.map(async (docSnap) => {
         const appData = docSnap.data();
         
-        // Fetch course and institution details
         const [courseDoc, institutionDoc] = await Promise.all([
           getDoc(doc(db, 'courses', appData.courseId)),
           getDoc(doc(db, 'institutions', appData.institutionId))
@@ -66,7 +104,8 @@ const StudentDashboard = () => {
   };
 
   const fetchCourses = async () => {
-    const querySnapshot = await getDocs(collection(db, 'courses'));
+    const q = query(collection(db, 'courses'), where('status', '==', 'active'));
+    const querySnapshot = await getDocs(q);
     const coursesList = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -84,7 +123,11 @@ const StudentDashboard = () => {
   };
 
   const fetchJobs = async () => {
-    const q = query(collection(db, 'jobs'), where('status', '==', 'active'));
+    const q = query(
+      collection(db, 'jobs'), 
+      where('status', '==', 'active'),
+      orderBy('createdAt', 'desc')
+    );
     const querySnapshot = await getDocs(q);
     const jobsList = querySnapshot.docs.map(doc => ({
       id: doc.id,
@@ -93,44 +136,234 @@ const StudentDashboard = () => {
     setJobs(jobsList);
   };
 
-  const handleCourseApply = (course) => {
+  const fetchNotifications = async () => {
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(20)
+    );
+    const querySnapshot = await getDocs(q);
+    const notificationsList = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    const unreadCount = notificationsList.filter(notif => !notif.read).length;
+    setUnreadNotifications(unreadCount);
+    setNotifications(notificationsList);
+  };
+
+  const fetchDocuments = async () => {
+    const q = query(
+      collection(db, 'documents'),
+      where('studentId', '==', user.uid),
+      orderBy('uploadedAt', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    const documentsList = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    setDocuments(documentsList);
+  };
+
+  const checkAdmissionOffers = async () => {
+    const admittedApplications = applications.filter(app => app.status === 'admitted');
+    const multipleOffers = admittedApplications.length > 1;
+    
+    if (multipleOffers) {
+      setAdmissionOffers(admittedApplications);
+      setShowAdmissionSelection(true);
+    }
+  };
+
+  const markNotificationAsRead = async (notificationId) => {
+    try {
+      await updateDoc(doc(db, 'notifications', notificationId), {
+        read: true,
+        readAt: new Date()
+      });
+      fetchNotifications();
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      const unreadNotifications = notifications.filter(notif => !notif.read);
+      const updatePromises = unreadNotifications.map(notif =>
+        updateDoc(doc(db, 'notifications', notif.id), {
+          read: true,
+          readAt: new Date()
+        })
+      );
+      await Promise.all(updatePromises);
+      fetchNotifications();
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  };
+
+  const handleCourseApply = async (course) => {
+    // Check if student already has 2 applications for this institution
+    const institutionApplications = applications.filter(
+      app => app.institutionId === course.institutionId
+    );
+    
+    if (institutionApplications.length >= 2) {
+      alert(`You can only apply for a maximum of 2 courses per institution. You already have ${institutionApplications.length} application(s) for this institution.`);
+      return;
+    }
+
+    // Check if student meets course requirements
+    if (!checkCourseEligibility(course)) {
+      alert('You do not meet the requirements for this course.');
+      return;
+    }
+
     setSelectedCourse(course);
     setShowCourseApplication(true);
+  };
+
+  const checkCourseEligibility = (course) => {
+    // Implement course eligibility logic based on student's profile
+    // This could check grades, subjects, etc.
+    if (!userData) return false;
+    
+    // Example eligibility check - you would customize this based on your requirements
+    const hasRequiredDocuments = documents.some(doc => 
+      doc.type === 'high_school_transcript' || doc.type === 'certificate'
+    );
+    
+    return hasRequiredDocuments;
   };
 
   const handleCourseApplicationSuccess = () => {
     setShowCourseApplication(false);
     setSelectedCourse(null);
-    fetchStudentApplications(); // Refresh applications list
+    fetchStudentApplications();
+  };
+
+  const handleAdmissionSelection = async (selectedApplicationId) => {
+    try {
+      // Update all admitted applications
+      const updatePromises = admissionOffers.map(offer => {
+        if (offer.id === selectedApplicationId) {
+          return updateDoc(doc(db, 'applications', offer.id), {
+            status: 'accepted',
+            acceptedAt: new Date()
+          });
+        } else {
+          return updateDoc(doc(db, 'applications', offer.id), {
+            status: 'declined',
+            declinedAt: new Date()
+          });
+        }
+      });
+
+      await Promise.all(updatePromises);
+      
+      // TODO: Trigger waiting list update for declined offers
+      
+      setShowAdmissionSelection(false);
+      setAdmissionOffers([]);
+      fetchStudentApplications();
+      
+      alert('Admission selection confirmed! You have been enrolled in your chosen program.');
+    } catch (error) {
+      console.error('Error processing admission selection:', error);
+      alert('Error processing your selection. Please try again.');
+    }
+  };
+
+  const handleDocumentUpload = (type) => {
+    setDocumentType(type);
+    setShowDocumentUpload(true);
+  };
+
+  const handleDocumentUploadSuccess = () => {
+    setShowDocumentUpload(false);
+    setDocumentType('');
+    fetchDocuments();
+  };
+
+  const deleteDocument = async (documentId) => {
+    try {
+      await deleteDoc(doc(db, 'documents', documentId));
+      fetchDocuments();
+      alert('Document deleted successfully.');
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      alert('Error deleting document. Please try again.');
+    }
   };
 
   const renderTabContent = () => {
     switch (activeTab) {
       case 'overview':
-        return <StudentOverview applications={applications} jobs={jobs} />;
+        return (
+          <StudentOverview 
+            applications={applications} 
+            jobs={jobs}
+            notifications={notifications}
+            unreadCount={unreadNotifications}
+            onMarkAsRead={markNotificationAsRead}
+            onMarkAllAsRead={markAllNotificationsAsRead}
+          />
+        );
       case 'applications':
         return <StudentApplications applications={applications} />;
       case 'courses':
-        return <BrowseCourses 
-          courses={courses} 
-          institutions={institutions}
-          onCourseApply={handleCourseApply}
-        />;
+        return (
+          <BrowseCourses 
+            courses={courses} 
+            institutions={institutions}
+            applications={applications}
+            onCourseApply={handleCourseApply}
+          />
+        );
       case 'jobs':
-        return <BrowseJobs 
-          jobs={jobs} 
-          onJobApply={(job) => {
-            setSelectedJob(job);
-            setShowJobApplication(true);
-          }}
-        />;
+        return (
+          <BrowseJobs 
+            jobs={jobs} 
+            onJobApply={(job) => {
+              setSelectedJob(job);
+              setShowJobApplication(true);
+            }}
+          />
+        );
+      case 'documents':
+        return (
+          <StudentDocuments 
+            documents={documents}
+            onDocumentUpload={handleDocumentUpload}
+            onDeleteDocument={deleteDocument}
+          />
+        );
+      case 'notifications':
+        return (
+          <StudentNotifications 
+            notifications={notifications}
+            onMarkAsRead={markNotificationAsRead}
+            onMarkAllAsRead={markAllNotificationsAsRead}
+          />
+        );
       case 'profile':
         return <StudentProfile 
           studentData={userData} 
           onProfileUpdate={fetchStudentData}
         />;
       default:
-        return <StudentOverview applications={applications} jobs={jobs} />;
+        return <StudentOverview 
+          applications={applications} 
+          jobs={jobs}
+          notifications={notifications}
+          unreadCount={unreadNotifications}
+          onMarkAsRead={markNotificationAsRead}
+          onMarkAllAsRead={markAllNotificationsAsRead}
+        />;
     }
   };
 
@@ -148,9 +381,13 @@ const StudentDashboard = () => {
         <h1>Student Dashboard</h1>
         <p>Welcome back, {userData?.name || user?.email}</p>
         <p>Role: <span className="user-role">{userData?.role}</span></p>
+        {unreadNotifications > 0 && (
+          <div className="notification-badge">
+            {unreadNotifications} unread notification(s)
+          </div>
+        )}
       </div>
 
-      {/* Navbar instead of sidebar */}
       <nav className="student-navbar">
         <ul>
           <li>
@@ -187,6 +424,22 @@ const StudentDashboard = () => {
           </li>
           <li>
             <button 
+              className={activeTab === 'documents' ? 'active' : ''}
+              onClick={() => setActiveTab('documents')}
+            >
+              My Documents
+            </button>
+          </li>
+          <li>
+            <button 
+              className={activeTab === 'notifications' ? 'active' : ''}
+              onClick={() => setActiveTab('notifications')}
+            >
+              Notifications {unreadNotifications > 0 && `(${unreadNotifications})`}
+            </button>
+          </li>
+          <li>
+            <button 
               className={activeTab === 'profile' ? 'active' : ''}
               onClick={() => setActiveTab('profile')}
             >
@@ -200,10 +453,12 @@ const StudentDashboard = () => {
         {renderTabContent()}
       </main>
 
-      {/* Course Application Modal - Only shows when a course is selected */}
+      {/* Course Application Modal */}
       {showCourseApplication && selectedCourse && (
         <CourseApplicationForm 
           course={selectedCourse}
+          studentData={userData}
+          existingApplications={applications}
           onClose={() => {
             setShowCourseApplication(false);
             setSelectedCourse(null);
@@ -212,6 +467,7 @@ const StudentDashboard = () => {
         />
       )}
 
+      {/* Job Application Modal */}
       {showJobApplication && selectedJob && (
         <JobApplicationForm
           job={selectedJob}
@@ -229,18 +485,43 @@ const StudentDashboard = () => {
           studentData={userData}
         />
       )}
+
+      {/* Admission Selection Modal */}
+      {showAdmissionSelection && admissionOffers.length > 0 && (
+        <AdmissionSelectionModal
+          offers={admissionOffers}
+          onSelect={handleAdmissionSelection}
+          onClose={() => setShowAdmissionSelection(false)}
+        />
+      )}
+
+      {/* Document Upload Modal */}
+      {showDocumentUpload && (
+        <DocumentUploadModal
+          documentType={documentType}
+          studentId={user.uid}
+          onClose={() => {
+            setShowDocumentUpload(false);
+            setDocumentType('');
+          }}
+          onSuccess={handleDocumentUploadSuccess}
+        />
+      )}
     </div>
   );
 };
 
-// Sub-components for Student Dashboard
-const StudentOverview = ({ applications, jobs }) => {
+// Enhanced Overview Component
+const StudentOverview = ({ applications, jobs, notifications, unreadCount, onMarkAsRead, onMarkAllAsRead }) => {
   const stats = {
     totalApplications: applications.length,
     pendingApplications: applications.filter(app => app.status === 'pending').length,
     admittedApplications: applications.filter(app => app.status === 'admitted').length,
+    acceptedApplications: applications.filter(app => app.status === 'accepted').length,
     availableJobs: jobs.length,
   };
+
+  const recentNotifications = notifications.slice(0, 5);
 
   return (
     <div className="student-overview">
@@ -272,27 +553,56 @@ const StudentOverview = ({ applications, jobs }) => {
         </div>
       </div>
 
-      <div className="recent-applications">
-        <h3>Recent Applications</h3>
-        <div className="applications-preview">
-          {applications.slice(0, 3).map(application => (
-            <div key={application.id} className="application-preview">
-              <h4>{application.course?.name || 'Unknown Course'}</h4>
-              <p>{application.institution?.name || 'Unknown Institution'}</p>
-              <span className={`status status-${application.status}`}>
-                {application.status}
-              </span>
-            </div>
-          ))}
-          {applications.length === 0 && (
-            <div className="empty-state">No applications yet</div>
-          )}
+      <div className="overview-sections">
+        <div className="recent-applications">
+          <h3>Recent Applications</h3>
+          <div className="applications-preview">
+            {applications.slice(0, 3).map(application => (
+              <div key={application.id} className="application-preview">
+                <h4>{application.course?.name || 'Unknown Course'}</h4>
+                <p>{application.institution?.name || 'Unknown Institution'}</p>
+                <span className={`status status-${application.status}`}>
+                  {application.status}
+                </span>
+              </div>
+            ))}
+            {applications.length === 0 && (
+              <div className="empty-state">No applications yet</div>
+            )}
+          </div>
+        </div>
+
+        <div className="recent-notifications">
+          <div className="section-header">
+            <h3>Recent Notifications</h3>
+            {unreadCount > 0 && (
+              <button className="btn-link" onClick={onMarkAllAsRead}>
+                Mark all as read
+              </button>
+            )}
+          </div>
+          <div className="notifications-preview">
+            {recentNotifications.map(notification => (
+              <div 
+                key={notification.id} 
+                className={`notification-item ${notification.read ? 'read' : 'unread'}`}
+                onClick={() => !notification.read && onMarkAsRead(notification.id)}
+              >
+                <p className="notification-message">{notification.message}</p>
+                <small>{formatDate(notification.createdAt)}</small>
+              </div>
+            ))}
+            {notifications.length === 0 && (
+              <div className="empty-state">No notifications</div>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
+// Enhanced Applications Component
 const StudentApplications = ({ applications }) => {
   const formatDate = (timestamp) => {
     if (!timestamp) return 'N/A';
@@ -304,6 +614,19 @@ const StudentApplications = ({ applications }) => {
     } catch (error) {
       return 'Invalid Date';
     }
+  };
+
+  const getStatusBadge = (status) => {
+    const statusConfig = {
+      pending: { class: 'status-pending', label: 'Under Review' },
+      admitted: { class: 'status-admitted', label: 'Admitted' },
+      accepted: { class: 'status-accepted', label: 'Enrolled' },
+      declined: { class: 'status-declined', label: 'Declined' },
+      rejected: { class: 'status-rejected', label: 'Not Admitted' }
+    };
+
+    const config = statusConfig[status] || { class: 'status-pending', label: status };
+    return <span className={`status ${config.class}`}>{config.label}</span>;
   };
 
   return (
@@ -318,9 +641,7 @@ const StudentApplications = ({ applications }) => {
                 <h3>{application.course?.name || 'Unknown Course'}</h3>
                 <p>{application.institution?.name || 'Unknown Institution'}</p>
               </div>
-              <span className={`status status-${application.status}`}>
-                {application.status}
-              </span>
+              {getStatusBadge(application.status)}
             </div>
             
             <div className="application-details">
@@ -346,7 +667,14 @@ const StudentApplications = ({ applications }) => {
             
             {application.status === 'admitted' && (
               <div className="admission-offer">
-                <p> Congratulations! You have been admitted to this program.</p>
+                <p>🎉 Congratulations! You have been admitted to this program.</p>
+                <p><strong>Next Steps:</strong> You will need to select one admission offer if you have multiple offers.</p>
+              </div>
+            )}
+
+            {application.status === 'accepted' && (
+              <div className="admission-accepted">
+                <p>✅ You have accepted this admission offer and are enrolled in the program.</p>
               </div>
             )}
           </div>
@@ -363,7 +691,8 @@ const StudentApplications = ({ applications }) => {
   );
 };
 
-const BrowseCourses = ({ courses, institutions, onCourseApply }) => {
+// Enhanced Courses Component with Application Limits
+const BrowseCourses = ({ courses, institutions, applications, onCourseApply }) => {
   const [selectedInstitution, setSelectedInstitution] = useState('');
   const [selectedFaculty, setSelectedFaculty] = useState('');
 
@@ -375,12 +704,20 @@ const BrowseCourses = ({ courses, institutions, onCourseApply }) => {
 
   const faculties = [...new Set(courses.map(course => course.facultyName).filter(Boolean))];
 
+  const getApplicationCount = (institutionId) => {
+    return applications.filter(app => app.institutionId === institutionId).length;
+  };
+
+  const canApplyToInstitution = (institutionId) => {
+    return getApplicationCount(institutionId) < 2;
+  };
+
   return (
     <div className="browse-courses">
       <div className="section-header">
         <h2>Browse Courses</h2>
         <p className="section-description">
-          Explore available courses from various institutions. Click "Apply for this Course" to submit your application.
+          Explore available courses from various institutions. You can apply for maximum 2 courses per institution.
         </p>
       </div>
 
@@ -393,7 +730,9 @@ const BrowseCourses = ({ courses, institutions, onCourseApply }) => {
           >
             <option value="">All Institutions</option>
             {institutions.map(inst => (
-              <option key={inst.id} value={inst.id}>{inst.name}</option>
+              <option key={inst.id} value={inst.id}>
+                {inst.name} ({getApplicationCount(inst.id)}/2 applications)
+              </option>
             ))}
           </select>
         </div>
@@ -415,6 +754,9 @@ const BrowseCourses = ({ courses, institutions, onCourseApply }) => {
       <div className="courses-grid">
         {filteredCourses.map(course => {
           const institution = institutions.find(inst => inst.id === course.institutionId);
+          const applicationCount = getApplicationCount(course.institutionId);
+          const canApply = canApplyToInstitution(course.institutionId);
+
           return (
             <div key={course.id} className="course-card">
               <div className="course-header">
@@ -428,6 +770,7 @@ const BrowseCourses = ({ courses, institutions, onCourseApply }) => {
                 <p><strong>Duration:</strong> {course.duration} years</p>
                 <p><strong>Fees:</strong> M{course.fees || 'N/A'}</p>
                 <p><strong>Capacity:</strong> {course.capacity} students</p>
+                <p><strong>Applications to this institution:</strong> {applicationCount}/2</p>
               </div>
               
               <div className="course-description">
@@ -440,11 +783,18 @@ const BrowseCourses = ({ courses, institutions, onCourseApply }) => {
               </div>
               
               <button 
-                className="btn-primary" 
+                className={`btn-primary ${!canApply ? 'disabled' : ''}`} 
                 onClick={() => onCourseApply(course)}
+                disabled={!canApply}
               >
-                Apply for this Course
+                {canApply ? 'Apply for this Course' : 'Application Limit Reached'}
               </button>
+              
+              {!canApply && (
+                <p className="limit-warning">
+                  You have reached the maximum of 2 applications for {institution?.name}.
+                </p>
+              )}
             </div>
           );
         })}
@@ -459,6 +809,7 @@ const BrowseCourses = ({ courses, institutions, onCourseApply }) => {
   );
 };
 
+// Enhanced Jobs Component
 const BrowseJobs = ({ jobs, onJobApply }) => {
   const formatDate = (timestamp) => {
     if (!timestamp) return 'N/A';
@@ -490,6 +841,7 @@ const BrowseJobs = ({ jobs, onJobApply }) => {
               <p><strong>Location:</strong> {job.location}</p>
               <p><strong>Salary:</strong> {job.salary}</p>
               <p><strong>Posted:</strong> {formatDate(job.createdAt)}</p>
+              <p><strong>Application Deadline:</strong> {formatDate(job.deadline)}</p>
             </div>
             
             <div className="job-description">
@@ -499,6 +851,11 @@ const BrowseJobs = ({ jobs, onJobApply }) => {
             <div className="job-requirements">
               <h4>Requirements:</h4>
               <p>{job.requirements}</p>
+            </div>
+
+            <div className="job-qualifications">
+              <h4>Preferred Qualifications:</h4>
+              <p>{job.qualifications || 'Not specified'}</p>
             </div>
             
             <div className="job-actions">
@@ -523,6 +880,182 @@ const BrowseJobs = ({ jobs, onJobApply }) => {
   );
 };
 
+// New Documents Management Component
+const StudentDocuments = ({ documents, onDocumentUpload, onDeleteDocument }) => {
+  const documentTypes = [
+    { value: 'high_school_transcript', label: 'High School Transcript' },
+    { value: 'birth_certificate', label: 'Birth Certificate' },
+    { value: 'id_copy', label: 'ID Copy' },
+    { value: 'academic_transcript', label: 'Academic Transcript' },
+    { value: 'degree_certificate', label: 'Degree Certificate' },
+    { value: 'professional_certificate', label: 'Professional Certificate' },
+    { value: 'other', label: 'Other Document' }
+  ];
+
+  const getDocumentTypeLabel = (type) => {
+    const docType = documentTypes.find(doc => doc.value === type);
+    return docType ? docType.label : type;
+  };
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    try {
+      if (timestamp.toDate) {
+        return timestamp.toDate().toLocaleDateString();
+      }
+      return new Date(timestamp).toLocaleDateString();
+    } catch (error) {
+      return 'Invalid Date';
+    }
+  };
+
+  return (
+    <div className="student-documents">
+      <div className="section-header">
+        <h2>My Documents</h2>
+        <div className="document-actions">
+          <select 
+            onChange={(e) => e.target.value && onDocumentUpload(e.target.value)}
+            className="document-type-select"
+          >
+            <option value="">Upload New Document</option>
+            {documentTypes.map(type => (
+              <option key={type.value} value={type.value}>
+                Upload {type.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="documents-grid">
+        {documents.map(document => (
+          <div key={document.id} className="document-card">
+            <div className="document-header">
+              <h3>{getDocumentTypeLabel(document.type)}</h3>
+              <span className={`status status-${document.status || 'pending'}`}>
+                {document.status || 'Pending Review'}
+              </span>
+            </div>
+            
+            <div className="document-details">
+              <p><strong>File Name:</strong> {document.fileName}</p>
+              <p><strong>Uploaded:</strong> {formatDate(document.uploadedAt)}</p>
+              <p><strong>File Size:</strong> {document.fileSize || 'N/A'}</p>
+              {document.reviewedAt && (
+                <p><strong>Reviewed:</strong> {formatDate(document.reviewedAt)}</p>
+              )}
+            </div>
+
+            {document.feedback && (
+              <div className="document-feedback">
+                <strong>Feedback:</strong>
+                <p>{document.feedback}</p>
+              </div>
+            )}
+
+            <div className="document-actions">
+              <button className="btn-primary">Download</button>
+              <button 
+                className="btn-danger"
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to delete this document?')) {
+                    onDeleteDocument(document.id);
+                  }
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+        
+        {documents.length === 0 && (
+          <div className="empty-state">
+            <p>No documents uploaded yet.</p>
+            <p>Upload your academic transcripts and certificates to complete your profile.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="documents-guide">
+        <h3>Document Upload Guide</h3>
+        <ul>
+          <li>Upload clear, legible scans of your documents</li>
+          <li>Accepted formats: PDF, JPG, PNG</li>
+          <li>Maximum file size: 10MB per document</li>
+          <li>Required documents: High School Transcript, ID Copy, Birth Certificate</li>
+          <li>After studies: Upload your Academic Transcripts and Degree Certificates</li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+// New Notifications Component
+const StudentNotifications = ({ notifications, onMarkAsRead, onMarkAllAsRead }) => {
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    try {
+      if (timestamp.toDate) {
+        return timestamp.toDate().toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+      return new Date(timestamp).toLocaleDateString();
+    } catch (error) {
+      return 'Invalid Date';
+    }
+  };
+
+  const unreadCount = notifications.filter(notif => !notif.read).length;
+
+  return (
+    <div className="student-notifications">
+      <div className="section-header">
+        <h2>Notifications</h2>
+        {unreadCount > 0 && (
+          <button className="btn-primary" onClick={onMarkAllAsRead}>
+            Mark All as Read
+          </button>
+        )}
+      </div>
+
+      <div className="notifications-list">
+        {notifications.map(notification => (
+          <div 
+            key={notification.id} 
+            className={`notification-card ${notification.read ? 'read' : 'unread'}`}
+            onClick={() => !notification.read && onMarkAsRead(notification.id)}
+          >
+            <div className="notification-content">
+              <p className="notification-message">{notification.message}</p>
+              <small className="notification-date">
+                {formatDate(notification.createdAt)}
+              </small>
+            </div>
+            {!notification.read && (
+              <span className="unread-indicator">New</span>
+            )}
+          </div>
+        ))}
+        
+        {notifications.length === 0 && (
+          <div className="empty-state">
+            <p>No notifications at this time.</p>
+            <p>You'll receive notifications about your applications, admissions, and job opportunities here.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Enhanced Profile Component
 const StudentProfile = ({ studentData, onProfileUpdate }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
@@ -564,7 +1097,6 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
     setLoading(true);
 
     try {
-      // Update the user document in Firestore
       const userDocRef = doc(db, 'users', studentData.uid);
       await updateDoc(userDocRef, {
         ...formData,
@@ -573,7 +1105,7 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
 
       setIsEditing(false);
       alert('Profile updated successfully!');
-      onProfileUpdate(); // Refresh the data
+      onProfileUpdate();
     } catch (error) {
       console.error('Error updating profile:', error);
       alert('Error updating profile. Please try again.');
@@ -769,6 +1301,19 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
       </div>
     </div>
   );
+};
+
+// Utility function for date formatting
+const formatDate = (timestamp) => {
+  if (!timestamp) return 'N/A';
+  try {
+    if (timestamp.toDate) {
+      return timestamp.toDate().toLocaleDateString();
+    }
+    return new Date(timestamp).toLocaleDateString();
+  } catch (error) {
+    return 'Invalid Date';
+  }
 };
 
 export default StudentDashboard;
