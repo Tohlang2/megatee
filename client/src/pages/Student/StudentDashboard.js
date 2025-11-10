@@ -48,9 +48,11 @@ const StudentDashboard = () => {
   }, [user]);
 
   const setupRealTimeListeners = () => {
+    // This would typically use onSnapshot for real-time updates
+    // For now, we'll refresh data periodically
     const interval = setInterval(() => {
       fetchStudentData();
-    }, 30000);
+    }, 30000); // Refresh every 30 seconds
 
     return () => clearInterval(interval);
   };
@@ -217,7 +219,7 @@ const StudentDashboard = () => {
 
     // Check if student meets course requirements
     if (!checkCourseEligibility(course)) {
-      alert('You do not meet the requirements for this course. Please complete your profile with required academic information.');
+      alert('You do not meet the requirements for this course.');
       return;
     }
 
@@ -226,36 +228,16 @@ const StudentDashboard = () => {
   };
 
   const checkCourseEligibility = (course) => {
+    // Implement course eligibility logic based on student's profile
+    // This could check grades, subjects, etc.
     if (!userData) return false;
     
-    // Check if student profile is complete and eligible
-    if (userData.eligibilityStatus !== 'eligible') {
-      return false;
-    }
-
-    // Check specific course requirements
-    const hasRequiredSubjects = course.requiredSubjects?.every(subject => 
-      userData.subjects?.includes(subject)
+    // Example eligibility check - you would customize this based on your requirements
+    const hasRequiredDocuments = documents.some(doc => 
+      doc.type === 'high_school_transcript' || doc.type === 'certificate'
     );
-
-    const meetsGradeRequirements = course.minimumGrade ? 
-      calculateAverageGrade() >= course.minimumGrade : true;
-
-    return hasRequiredSubjects && meetsGradeRequirements;
-  };
-
-  const calculateAverageGrade = () => {
-    if (!userData.grades || Object.keys(userData.grades).length === 0) return 0;
     
-    const gradePoints = {
-      'A': 90, 'B': 80, 'C': 70, 'D': 60, 'E': 50, 'F': 40
-    };
-    
-    const total = Object.values(userData.grades).reduce((sum, grade) => {
-      return sum + (gradePoints[grade] || 0);
-    }, 0);
-    
-    return total / Object.keys(userData.grades).length;
+    return hasRequiredDocuments;
   };
 
   const handleCourseApplicationSuccess = () => {
@@ -266,6 +248,7 @@ const StudentDashboard = () => {
 
   const handleAdmissionSelection = async (selectedApplicationId) => {
     try {
+      // Update all admitted applications
       const updatePromises = admissionOffers.map(offer => {
         if (offer.id === selectedApplicationId) {
           return updateDoc(doc(db, 'applications', offer.id), {
@@ -281,6 +264,8 @@ const StudentDashboard = () => {
       });
 
       await Promise.all(updatePromises);
+      
+      // TODO: Trigger waiting list update for declined offers
       
       setShowAdmissionSelection(false);
       setAdmissionOffers([]);
@@ -324,7 +309,6 @@ const StudentDashboard = () => {
             jobs={jobs}
             notifications={notifications}
             unreadCount={unreadNotifications}
-            studentData={userData}
             onMarkAsRead={markNotificationAsRead}
             onMarkAllAsRead={markAllNotificationsAsRead}
           />
@@ -337,7 +321,6 @@ const StudentDashboard = () => {
             courses={courses} 
             institutions={institutions}
             applications={applications}
-            studentData={userData}
             onCourseApply={handleCourseApply}
           />
         );
@@ -345,7 +328,6 @@ const StudentDashboard = () => {
         return (
           <BrowseJobs 
             jobs={jobs} 
-            studentData={userData}
             onJobApply={(job) => {
               setSelectedJob(job);
               setShowJobApplication(true);
@@ -379,7 +361,6 @@ const StudentDashboard = () => {
           jobs={jobs}
           notifications={notifications}
           unreadCount={unreadNotifications}
-          studentData={userData}
           onMarkAsRead={markNotificationAsRead}
           onMarkAllAsRead={markAllNotificationsAsRead}
         />;
@@ -399,12 +380,7 @@ const StudentDashboard = () => {
       <div className="dashboard-header">
         <h1>Student Dashboard</h1>
         <p>Welcome back, {userData?.name || user?.email}</p>
-        <div className="header-info">
-          <p>Role: <span className="user-role">{userData?.role}</span></p>
-          <p>Status: <span className={`eligibility-status ${userData?.eligibilityStatus || 'incomplete'}`}>
-            {userData?.eligibilityStatus === 'eligible' ? '✅ Eligible' : '❌ Profile Incomplete'}
-          </span></p>
-        </div>
+        <p>Role: <span className="user-role">{userData?.role}</span></p>
         {unreadNotifications > 0 && (
           <div className="notification-badge">
             {unreadNotifications} unread notification(s)
@@ -536,7 +512,7 @@ const StudentDashboard = () => {
 };
 
 // Enhanced Overview Component
-const StudentOverview = ({ applications, jobs, notifications, unreadCount, studentData, onMarkAsRead, onMarkAllAsRead }) => {
+const StudentOverview = ({ applications, jobs, notifications, unreadCount, onMarkAsRead, onMarkAllAsRead }) => {
   const stats = {
     totalApplications: applications.length,
     pendingApplications: applications.filter(app => app.status === 'pending').length,
@@ -546,18 +522,6 @@ const StudentOverview = ({ applications, jobs, notifications, unreadCount, stude
   };
 
   const recentNotifications = notifications.slice(0, 5);
-
-  // Calculate profile completion
-  const calculateProfileCompletion = () => {
-    const requiredFields = ['name', 'dateOfBirth', 'highSchool', 'graduationYear', 'subjects'];
-    const completedFields = requiredFields.filter(field => 
-      studentData && studentData[field] && 
-      (Array.isArray(studentData[field]) ? studentData[field].length > 0 : true)
-    );
-    return Math.round((completedFields.length / requiredFields.length) * 100);
-  };
-
-  const profileCompletion = calculateProfileCompletion();
 
   return (
     <div className="student-overview">
@@ -586,12 +550,6 @@ const StudentOverview = ({ applications, jobs, notifications, unreadCount, stude
           <h3>Available Jobs</h3>
           <p className="stat-number">{stats.availableJobs}</p>
           <small>Job opportunities</small>
-        </div>
-
-        <div className="stat-card">
-          <h3>Profile Completion</h3>
-          <p className="stat-number">{profileCompletion}%</p>
-          <small>{studentData?.eligibilityStatus === 'eligible' ? '✅ Eligible' : '❌ Complete Profile'}</small>
         </div>
       </div>
 
@@ -646,18 +604,6 @@ const StudentOverview = ({ applications, jobs, notifications, unreadCount, stude
 
 // Enhanced Applications Component
 const StudentApplications = ({ applications }) => {
-  const formatDate = (timestamp) => {
-    if (!timestamp) return 'N/A';
-    try {
-      if (timestamp.toDate) {
-        return timestamp.toDate().toLocaleDateString();
-      }
-      return new Date(timestamp).toLocaleDateString();
-    } catch (error) {
-      return 'Invalid Date';
-    }
-  };
-
   const getStatusBadge = (status) => {
     const statusConfig = {
       pending: { class: 'status-pending', label: 'Under Review' },
@@ -734,7 +680,7 @@ const StudentApplications = ({ applications }) => {
 };
 
 // Enhanced Courses Component with Application Limits
-const BrowseCourses = ({ courses, institutions, applications, studentData, onCourseApply }) => {
+const BrowseCourses = ({ courses, institutions, applications, onCourseApply }) => {
   const [selectedInstitution, setSelectedInstitution] = useState('');
   const [selectedFaculty, setSelectedFaculty] = useState('');
 
@@ -754,45 +700,12 @@ const BrowseCourses = ({ courses, institutions, applications, studentData, onCou
     return getApplicationCount(institutionId) < 2;
   };
 
-  const isEligibleForCourse = (course) => {
-    if (studentData?.eligibilityStatus !== 'eligible') return false;
-    
-    // Check specific course requirements
-    const hasRequiredSubjects = course.requiredSubjects?.every(subject => 
-      studentData.subjects?.includes(subject)
-    );
-
-    const meetsGradeRequirements = course.minimumGrade ? 
-      calculateAverageGrade(studentData.grades) >= course.minimumGrade : true;
-
-    return hasRequiredSubjects && meetsGradeRequirements;
-  };
-
-  const calculateAverageGrade = (grades) => {
-    if (!grades || Object.keys(grades).length === 0) return 0;
-    
-    const gradePoints = {
-      'A': 90, 'B': 80, 'C': 70, 'D': 60, 'E': 50, 'F': 40
-    };
-    
-    const total = Object.values(grades).reduce((sum, grade) => {
-      return sum + (gradePoints[grade] || 0);
-    }, 0);
-    
-    return total / Object.keys(grades).length;
-  };
-
   return (
     <div className="browse-courses">
       <div className="section-header">
         <h2>Browse Courses</h2>
         <p className="section-description">
           Explore available courses from various institutions. You can apply for maximum 2 courses per institution.
-          {studentData?.eligibilityStatus !== 'eligible' && (
-            <span className="eligibility-warning">
-              Complete your profile to be eligible for course applications.
-            </span>
-          )}
         </p>
       </div>
 
@@ -831,7 +744,6 @@ const BrowseCourses = ({ courses, institutions, applications, studentData, onCou
           const institution = institutions.find(inst => inst.id === course.institutionId);
           const applicationCount = getApplicationCount(course.institutionId);
           const canApply = canApplyToInstitution(course.institutionId);
-          const isEligible = isEligibleForCourse(course);
 
           return (
             <div key={course.id} className="course-card">
@@ -847,12 +759,6 @@ const BrowseCourses = ({ courses, institutions, applications, studentData, onCou
                 <p><strong>Fees:</strong> M{course.fees || 'N/A'}</p>
                 <p><strong>Capacity:</strong> {course.capacity} students</p>
                 <p><strong>Applications to this institution:</strong> {applicationCount}/2</p>
-                {course.requiredSubjects && (
-                  <p><strong>Required Subjects:</strong> {course.requiredSubjects.join(', ')}</p>
-                )}
-                {course.minimumGrade && (
-                  <p><strong>Minimum Grade:</strong> {course.minimumGrade}%</p>
-                )}
               </div>
               
               <div className="course-description">
@@ -863,23 +769,13 @@ const BrowseCourses = ({ courses, institutions, applications, studentData, onCou
                 <h4>Requirements:</h4>
                 <p>{course.requirements || 'No specific requirements listed.'}</p>
               </div>
-
-              <div className="course-eligibility">
-                {!isEligible && studentData?.eligibilityStatus === 'eligible' && (
-                  <div className="eligibility-warning">
-                    You don't meet the specific requirements for this course.
-                  </div>
-                )}
-              </div>
               
               <button 
-                className={`btn-primary ${!canApply || !isEligible ? 'disabled' : ''}`} 
+                className={`btn-primary ${!canApply ? 'disabled' : ''}`} 
                 onClick={() => onCourseApply(course)}
-                disabled={!canApply || !isEligible}
+                disabled={!canApply}
               >
-                {!isEligible ? 'Not Eligible' : 
-                 !canApply ? 'Application Limit Reached' : 
-                 'Apply for this Course'}
+                {canApply ? 'Apply for this Course' : 'Application Limit Reached'}
               </button>
               
               {!canApply && (
@@ -902,96 +798,52 @@ const BrowseCourses = ({ courses, institutions, applications, studentData, onCou
 };
 
 // Enhanced Jobs Component
-const BrowseJobs = ({ jobs, studentData, onJobApply }) => {
-  const formatDate = (timestamp) => {
-    if (!timestamp) return 'N/A';
-    try {
-      if (timestamp.toDate) {
-        return timestamp.toDate().toLocaleDateString();
-      }
-      return new Date(timestamp).toLocaleDateString();
-    } catch (error) {
-      return 'Invalid Date';
-    }
-  };
-
-  const isEligibleForJob = (job) => {
-    if (studentData?.eligibilityStatus !== 'eligible') return false;
-    
-    // Check if student meets job requirements
-    const hasRequiredQualifications = job.requiredQualifications?.every(qualification =>
-      studentData.subjects?.includes(qualification) || 
-      studentData.extracurriculars?.includes(qualification)
-    );
-
-    const meetsExperience = job.requiredExperience ? 
-      (studentData.workExperience?.length || 0) >= job.requiredExperience : true;
-
-    return hasRequiredQualifications && meetsExperience;
-  };
-
+const BrowseJobs = ({ jobs, onJobApply }) => {
   return (
     <div className="browse-jobs">
       <h2>Available Job Opportunities</h2>
       
       <div className="jobs-grid">
-        {jobs.map(job => {
-          const isEligible = isEligibleForJob(job);
-          
-          return (
-            <div key={job.id} className={`job-card ${!isEligible ? 'not-eligible' : ''}`}>
-              <div className="job-header">
-                <h3>{job.title}</h3>
-                <span className="job-type">{job.type}</span>
-                {!isEligible && <span className="eligibility-tag">Not Eligible</span>}
-              </div>
-              
-              <div className="job-details">
-                <p><strong>Company:</strong> {job.companyName}</p>
-                <p><strong>Department:</strong> {job.department}</p>
-                <p><strong>Location:</strong> {job.location}</p>
-                <p><strong>Salary:</strong> {job.salary}</p>
-                <p><strong>Posted:</strong> {formatDate(job.createdAt)}</p>
-                <p><strong>Application Deadline:</strong> {formatDate(job.deadline)}</p>
-                {job.requiredQualifications && (
-                  <p><strong>Required Qualifications:</strong> {job.requiredQualifications.join(', ')}</p>
-                )}
-                {job.requiredExperience && (
-                  <p><strong>Required Experience:</strong> {job.requiredExperience} years</p>
-                )}
-              </div>
-              
-              <div className="job-description">
-                <p>{job.description}</p>
-              </div>
-              
-              <div className="job-requirements">
-                <h4>Requirements:</h4>
-                <p>{job.requirements}</p>
-              </div>
-
-              <div className="job-qualifications">
-                <h4>Preferred Qualifications:</h4>
-                <p>{job.qualifications || 'Not specified'}</p>
-              </div>
-              
-              <div className="job-actions">
-                <button 
-                  className={`btn-primary ${!isEligible ? 'disabled' : ''}`} 
-                  onClick={() => onJobApply(job)}
-                  disabled={!isEligible}
-                >
-                  {isEligible ? 'Apply Now' : 'Not Eligible'}
-                </button>
-                {!isEligible && (
-                  <p className="eligibility-message">
-                    Complete your profile and meet the job requirements to apply.
-                  </p>
-                )}
-              </div>
+        {jobs.map(job => (
+          <div key={job.id} className="job-card">
+            <div className="job-header">
+              <h3>{job.title}</h3>
+              <span className="job-type">{job.type}</span>
             </div>
-          );
-        })}
+            
+            <div className="job-details">
+              <p><strong>Company:</strong> {job.companyName}</p>
+              <p><strong>Department:</strong> {job.department}</p>
+              <p><strong>Location:</strong> {job.location}</p>
+              <p><strong>Salary:</strong> {job.salary}</p>
+              <p><strong>Posted:</strong> {formatDate(job.createdAt)}</p>
+              <p><strong>Application Deadline:</strong> {formatDate(job.deadline)}</p>
+            </div>
+            
+            <div className="job-description">
+              <p>{job.description}</p>
+            </div>
+            
+            <div className="job-requirements">
+              <h4>Requirements:</h4>
+              <p>{job.requirements}</p>
+            </div>
+
+            <div className="job-qualifications">
+              <h4>Preferred Qualifications:</h4>
+              <p>{job.qualifications || 'Not specified'}</p>
+            </div>
+            
+            <div className="job-actions">
+              <button 
+                className="btn-primary" 
+                onClick={() => onJobApply(job)}
+              >
+                Apply Now
+              </button>
+            </div>
+          </div>
+        ))}
         
         {jobs.length === 0 && (
           <div className="empty-state">
@@ -1019,18 +871,6 @@ const StudentDocuments = ({ documents, onDocumentUpload, onDeleteDocument }) => 
   const getDocumentTypeLabel = (type) => {
     const docType = documentTypes.find(doc => doc.value === type);
     return docType ? docType.label : type;
-  };
-
-  const formatDate = (timestamp) => {
-    if (!timestamp) return 'N/A';
-    try {
-      if (timestamp.toDate) {
-        return timestamp.toDate().toLocaleDateString();
-      }
-      return new Date(timestamp).toLocaleDateString();
-    } catch (error) {
-      return 'Invalid Date';
-    }
   };
 
   return (
@@ -1118,24 +958,6 @@ const StudentDocuments = ({ documents, onDocumentUpload, onDeleteDocument }) => 
 
 // New Notifications Component
 const StudentNotifications = ({ notifications, onMarkAsRead, onMarkAllAsRead }) => {
-  const formatDate = (timestamp) => {
-    if (!timestamp) return 'N/A';
-    try {
-      if (timestamp.toDate) {
-        return timestamp.toDate().toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-      }
-      return new Date(timestamp).toLocaleDateString();
-    } catch (error) {
-      return 'Invalid Date';
-    }
-  };
-
   const unreadCount = notifications.filter(notif => !notif.read).length;
 
   return (
@@ -1179,8 +1001,9 @@ const StudentNotifications = ({ notifications, onMarkAsRead, onMarkAllAsRead }) 
   );
 };
 
-// Enhanced Profile Component with Requirements
+// FIXED Profile Component
 const StudentProfile = ({ studentData, onProfileUpdate }) => {
+  const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -1188,32 +1011,11 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
     highSchool: '',
     graduationYear: '',
     address: '',
-    dateOfBirth: '',
-    subjects: [],
-    grades: {},
-    extracurriculars: [],
-    workExperience: []
+    dateOfBirth: ''
   });
   const [loading, setLoading] = useState(false);
-
-  // Course eligibility requirements
-  const eligibilityRequirements = {
-    minimumGrade: 60,
-    requiredSubjects: ['Mathematics', 'English'],
-    minimumAge: 16,
-    maximumAge: 25,
-    requiredDocuments: ['high_school_transcript', 'birth_certificate', 'id_copy']
-  };
-
-  // Available subjects for selection
-  const availableSubjects = [
-    'Mathematics', 'English', 'Physics', 'Chemistry', 'Biology',
-    'History', 'Geography', 'Accounting', 'Economics', 'Business Studies',
-    'Computer Science', 'Agriculture', 'Art', 'Music', 'Physical Education'
-  ];
-
-  // Grade scale
-  const gradeScale = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     if (studentData) {
@@ -1223,75 +1025,15 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
         highSchool: studentData.highSchool || '',
         graduationYear: studentData.graduationYear || '',
         address: studentData.address || '',
-        dateOfBirth: studentData.dateOfBirth || '',
-        subjects: studentData.subjects || [],
-        grades: studentData.grades || {},
-        extracurriculars: studentData.extracurriculars || [],
-        workExperience: studentData.workExperience || []
+        dateOfBirth: studentData.dateOfBirth || ''
       });
     }
   }, [studentData]);
 
-  // Calculate eligibility status
-  const calculateEligibility = () => {
-    const missingRequirements = [];
-
-    // Check personal information
-    if (!formData.name) missingRequirements.push('Full Name');
-    if (!formData.dateOfBirth) missingRequirements.push('Date of Birth');
-    if (!formData.highSchool) missingRequirements.push('High School');
-    if (!formData.graduationYear) missingRequirements.push('Graduation Year');
-
-    // Check age requirements
-    if (formData.dateOfBirth) {
-      const birthDate = new Date(formData.dateOfBirth);
-      const today = new Date();
-      const age = today.getFullYear() - birthDate.getFullYear();
-      
-      if (age < eligibilityRequirements.minimumAge) {
-        missingRequirements.push(`Minimum age of ${eligibilityRequirements.minimumAge} years`);
-      }
-      if (age > eligibilityRequirements.maximumAge) {
-        missingRequirements.push(`Maximum age of ${eligibilityRequirements.maximumAge} years`);
-      }
-    }
-
-    // Check academic requirements
-    if (formData.subjects.length === 0) {
-      missingRequirements.push('At least 5 subjects with grades');
-    } else {
-      // Check for required subjects
-      eligibilityRequirements.requiredSubjects.forEach(subject => {
-        if (!formData.subjects.includes(subject)) {
-          missingRequirements.push(`${subject} subject`);
-        }
-      });
-
-      // Check minimum grades
-      const hasFailingGrade = Object.values(formData.grades).some(grade => 
-        grade === 'E' || grade === 'F'
-      );
-      if (hasFailingGrade) {
-        missingRequirements.push('No failing grades (E or F)');
-      }
-
-      // Check if minimum number of subjects
-      if (formData.subjects.length < 5) {
-        missingRequirements.push('Minimum of 5 subjects');
-      }
-    }
-
-    return {
-      isEligible: missingRequirements.length === 0,
-      missingRequirements,
-      completedPercentage: Math.round(((10 - missingRequirements.length) / 10) * 100)
-    };
-  };
-
-  const eligibility = calculateEligibility();
-
   const handleEditToggle = () => {
     setIsEditing(!isEditing);
+    setError('');
+    setSuccess('');
   };
 
   const handleChange = (e) => {
@@ -1301,94 +1043,42 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
     });
   };
 
-  const handleSubjectChange = (subject) => {
-    const updatedSubjects = formData.subjects.includes(subject)
-      ? formData.subjects.filter(s => s !== subject)
-      : [...formData.subjects, subject];
-    
-    setFormData({
-      ...formData,
-      subjects: updatedSubjects
-    });
-  };
-
-  const handleGradeChange = (subject, grade) => {
-    setFormData({
-      ...formData,
-      grades: {
-        ...formData.grades,
-        [subject]: grade
-      }
-    });
-  };
-
-  const handleExtracurricularChange = (e) => {
-    const value = e.target.value;
-    if (value && !formData.extracurriculars.includes(value)) {
-      setFormData({
-        ...formData,
-        extracurriculars: [...formData.extracurriculars, value]
-      });
-      e.target.value = ''; // Clear input after adding
-    }
-  };
-
-  const removeExtracurricular = (index) => {
-    const updated = [...formData.extracurriculars];
-    updated.splice(index, 1);
-    setFormData({
-      ...formData,
-      extracurriculars: updated
-    });
-  };
-
-  const handleWorkExperienceChange = (index, field, value) => {
-    const updated = [...formData.workExperience];
-    if (!updated[index]) {
-      updated[index] = { company: '', position: '', duration: '' };
-    }
-    updated[index][field] = value;
-    setFormData({
-      ...formData,
-      workExperience: updated
-    });
-  };
-
-  const addWorkExperience = () => {
-    setFormData({
-      ...formData,
-      workExperience: [...formData.workExperience, { company: '', position: '', duration: '' }]
-    });
-  };
-
-  const removeWorkExperience = (index) => {
-    const updated = [...formData.workExperience];
-    updated.splice(index, 1);
-    setFormData({
-      ...formData,
-      workExperience: updated
-    });
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setError('');
+    setSuccess('');
 
     try {
-      const userDocRef = doc(db, 'users', studentData.uid);
+      if (!user || !user.uid) {
+        throw new Error('User not authenticated');
+      }
+
+      // Validate required fields
+      if (!formData.name.trim()) {
+        throw new Error('Full name is required');
+      }
+
+      // Update user document in Firestore
+      const userDocRef = doc(db, 'users', user.uid);
       await updateDoc(userDocRef, {
         ...formData,
-        eligibilityStatus: eligibility.isEligible ? 'eligible' : 'incomplete',
-        updatedAt: new Date(),
-        profileCompleted: true
+        updatedAt: new Date()
       });
 
+      setSuccess('Profile updated successfully!');
       setIsEditing(false);
-      alert('Profile updated successfully!');
-      onProfileUpdate();
+      
+      // Refresh parent component data
+      if (onProfileUpdate) {
+        onProfileUpdate();
+      }
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
       console.error('Error updating profile:', error);
-      alert('Error updating profile. Please try again.');
+      setError(error.message || 'Error updating profile. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -1396,76 +1086,42 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
 
   const handleCancel = () => {
     setFormData({
-      name: studentData.name || '',
-      phone: studentData.phone || '',
-      highSchool: studentData.highSchool || '',
-      graduationYear: studentData.graduationYear || '',
-      address: studentData.address || '',
-      dateOfBirth: studentData.dateOfBirth || '',
-      subjects: studentData.subjects || [],
-      grades: studentData.grades || {},
-      extracurriculars: studentData.extracurriculars || [],
-      workExperience: studentData.workExperience || []
+      name: studentData?.name || '',
+      phone: studentData?.phone || '',
+      highSchool: studentData?.highSchool || '',
+      graduationYear: studentData?.graduationYear || '',
+      address: studentData?.address || '',
+      dateOfBirth: studentData?.dateOfBirth || ''
     });
     setIsEditing(false);
+    setError('');
+    setSuccess('');
   };
 
   return (
     <div className="student-profile">
       <div className="section-header">
         <h2>My Profile</h2>
-        <div className="profile-status">
-          <div className={`eligibility-badge ${eligibility.isEligible ? 'eligible' : 'incomplete'}`}>
-            {eligibility.isEligible ? '✅ Eligible to Apply' : '❌ Profile Incomplete'}
-          </div>
-          <button 
-            className={isEditing ? 'btn-secondary' : 'btn-primary'} 
-            onClick={isEditing ? handleCancel : handleEditToggle}
-          >
-            {isEditing ? 'Cancel' : 'Edit Profile'}
-          </button>
-        </div>
+        <button 
+          className={isEditing ? 'btn-secondary' : 'btn-primary'} 
+          onClick={isEditing ? handleCancel : handleEditToggle}
+          type="button"
+        >
+          {isEditing ? 'Cancel' : 'Edit Profile'}
+        </button>
       </div>
 
-      {/* Eligibility Requirements Card */}
-      <div className="requirements-card">
-        <h3>Eligibility Requirements</h3>
-        <div className="requirements-progress">
-          <div className="progress-bar">
-            <div 
-              className="progress-fill" 
-              style={{ width: `${eligibility.completedPercentage}%` }}
-            ></div>
-          </div>
-          <span className="progress-text">{eligibility.completedPercentage}% Complete</span>
+      {/* Success and Error Messages */}
+      {success && (
+        <div className="alert alert-success">
+          {success}
         </div>
-        <div className="requirements-list">
-          <h4>To be eligible for course applications, you need:</h4>
-          <ul>
-            <li className={formData.name ? 'completed' : ''}>Full Name</li>
-            <li className={formData.dateOfBirth ? 'completed' : ''}>Date of Birth (16-25 years)</li>
-            <li className={formData.highSchool ? 'completed' : ''}>High School Information</li>
-            <li className={formData.graduationYear ? 'completed' : ''}>Graduation Year</li>
-            <li className={formData.subjects.length >= 5 ? 'completed' : ''}>Minimum 5 Subjects</li>
-            <li className={eligibilityRequirements.requiredSubjects.every(s => formData.subjects.includes(s)) ? 'completed' : ''}>
-              Required Subjects: {eligibilityRequirements.requiredSubjects.join(', ')}
-            </li>
-            <li className={!Object.values(formData.grades).some(g => g === 'E' || g === 'F') ? 'completed' : ''}>
-              No failing grades (E or F)
-            </li>
-          </ul>
+      )}
+      {error && (
+        <div className="alert alert-error">
+          {error}
         </div>
-        {eligibility.missingRequirements.length > 0 && (
-          <div className="missing-requirements">
-            <h4>Missing Requirements:</h4>
-            <ul>
-              {eligibility.missingRequirements.map((req, index) => (
-                <li key={index}>{req}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
+      )}
       
       <div className="profile-card">
         {isEditing ? (
@@ -1482,6 +1138,7 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
                     onChange={handleChange}
                     required
                     className="form-input"
+                    placeholder="Enter your full name"
                   />
                 </div>
                 <div className="form-group">
@@ -1506,14 +1163,13 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Date of Birth *</label>
+                  <label>Date of Birth</label>
                   <input
                     type="date"
                     name="dateOfBirth"
                     value={formData.dateOfBirth}
                     onChange={handleChange}
                     className="form-input"
-                    required
                   />
                 </div>
                 <div className="form-group">
@@ -1531,10 +1187,10 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
             </div>
             
             <div className="profile-section">
-              <h3>Academic Information *</h3>
+              <h3>Academic Information</h3>
               <div className="profile-info">
                 <div className="form-group">
-                  <label>High School *</label>
+                  <label>High School</label>
                   <input
                     type="text"
                     name="highSchool"
@@ -1542,11 +1198,10 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
                     onChange={handleChange}
                     className="form-input"
                     placeholder="Name of your high school"
-                    required
                   />
                 </div>
                 <div className="form-group">
-                  <label>Graduation Year *</label>
+                  <label>Graduation Year</label>
                   <input
                     type="number"
                     name="graduationYear"
@@ -1556,137 +1211,8 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
                     placeholder="YYYY"
                     min="1900"
                     max="2030"
-                    required
                   />
                 </div>
-
-                <div className="form-group">
-                  <label>Subjects and Grades * (Select at least 5 subjects)</label>
-                  <div className="subjects-grid">
-                    {availableSubjects.map(subject => (
-                      <div key={subject} className="subject-item">
-                        <label className="subject-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={formData.subjects.includes(subject)}
-                            onChange={() => handleSubjectChange(subject)}
-                          />
-                          {subject}
-                        </label>
-                        {formData.subjects.includes(subject) && (
-                          <select
-                            value={formData.grades[subject] || ''}
-                            onChange={(e) => handleGradeChange(subject, e.target.value)}
-                            className="grade-select"
-                          >
-                            <option value="">Select Grade</option>
-                            {gradeScale.map(grade => (
-                              <option key={grade} value={grade}>{grade}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <small>Selected {formData.subjects.length} of minimum 5 subjects</small>
-                </div>
-              </div>
-            </div>
-
-            <div className="profile-section">
-              <h3>Extracurricular Activities</h3>
-              <div className="profile-info">
-                <div className="form-group">
-                  <label>Add Extracurricular Activity</label>
-                  <div className="extracurricular-input">
-                    <input
-                      type="text"
-                      placeholder="e.g., Sports, Music, Clubs, Volunteering"
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleExtracurricularChange(e);
-                        }
-                      }}
-                      className="form-input"
-                    />
-                    <button 
-                      type="button" 
-                      className="btn btn-sm btn-primary"
-                      onClick={handleExtracurricularChange}
-                    >
-                      Add
-                    </button>
-                  </div>
-                  <div className="extracurricular-list">
-                    {formData.extracurriculars.map((activity, index) => (
-                      <div key={index} className="extracurricular-item">
-                        {activity}
-                        <button 
-                          type="button" 
-                          className="btn btn-sm btn-danger"
-                          onClick={() => removeExtracurricular(index)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="profile-section">
-              <h3>Work Experience</h3>
-              <div className="profile-info">
-                {formData.workExperience.map((exp, index) => (
-                  <div key={index} className="work-experience-item">
-                    <div className="form-group">
-                      <label>Company</label>
-                      <input
-                        type="text"
-                        value={exp.company}
-                        onChange={(e) => handleWorkExperienceChange(index, 'company', e.target.value)}
-                        className="form-input"
-                        placeholder="Company name"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Position</label>
-                      <input
-                        type="text"
-                        value={exp.position}
-                        onChange={(e) => handleWorkExperienceChange(index, 'position', e.target.value)}
-                        className="form-input"
-                        placeholder="Your position"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Duration</label>
-                      <input
-                        type="text"
-                        value={exp.duration}
-                        onChange={(e) => handleWorkExperienceChange(index, 'duration', e.target.value)}
-                        className="form-input"
-                        placeholder="e.g., 2 years, 6 months"
-                      />
-                    </div>
-                    <button 
-                      type="button" 
-                      className="btn btn-sm btn-danger"
-                      onClick={() => removeWorkExperience(index)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                <button 
-                  type="button" 
-                  className="btn btn-secondary"
-                  onClick={addWorkExperience}
-                >
-                  Add Work Experience
-                </button>
               </div>
             </div>
             
@@ -1702,6 +1228,7 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
                 type="button" 
                 className="btn-secondary" 
                 onClick={handleCancel}
+                disabled={loading}
               >
                 Cancel
               </button>
@@ -1750,64 +1277,7 @@ const StudentProfile = ({ studentData, onProfileUpdate }) => {
                   <strong>Graduation Year:</strong>
                   <span>{studentData?.graduationYear || 'Not specified'}</span>
                 </div>
-                {studentData?.subjects && studentData.subjects.length > 0 && (
-                  <div className="info-item">
-                    <strong>Subjects and Grades:</strong>
-                    <div className="subjects-list">
-                      {studentData.subjects.map(subject => (
-                        <div key={subject} className="subject-grade">
-                          <span>{subject}:</span>
-                          <span className="grade">{studentData.grades?.[subject] || 'Not graded'}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
-            </div>
-
-            {studentData?.extracurriculars && studentData.extracurriculars.length > 0 && (
-              <div className="profile-section">
-                <h3>Extracurricular Activities</h3>
-                <div className="profile-info">
-                  <div className="info-item">
-                    <strong>Activities:</strong>
-                    <div className="extracurriculars-list">
-                      {studentData.extracurriculars.map((activity, index) => (
-                        <span key={index} className="activity-tag">{activity}</span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {studentData?.workExperience && studentData.workExperience.length > 0 && (
-              <div className="profile-section">
-                <h3>Work Experience</h3>
-                <div className="profile-info">
-                  {studentData.workExperience.map((exp, index) => (
-                    <div key={index} className="work-experience">
-                      <div className="info-item">
-                        <strong>Company:</strong>
-                        <span>{exp.company}</span>
-                      </div>
-                      <div className="info-item">
-                        <strong>Position:</strong>
-                        <span>{exp.position}</span>
-                      </div>
-                      <div className="info-item">
-                        <strong>Duration:</strong>
-                        <span>{exp.duration}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            <div className="profile-actions">
-              <button className="btn-secondary">Upload Documents</button>
             </div>
           </>
         )}

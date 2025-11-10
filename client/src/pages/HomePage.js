@@ -34,10 +34,7 @@ const HomePage = () => {
   ];
 
   const stats = [
-    { number: "50+", label: "Institutions" },
-    { number: "10K+", label: "Students" },
-    { number: "500+", label: "Companies" },
-    { number: "95%", label: "Success Rate" }
+    
   ];
 
   return (
@@ -54,9 +51,7 @@ const HomePage = () => {
             <div className="hero-buttons">
               {!currentUser ? (
                 <>
-                  <Link to="/register" className="btn btn-primary">
-                    Get Started
-                  </Link>
+                 
                   <Link to="/login" className="btn btn-secondary">
                     Sign In
                   </Link>
@@ -148,24 +143,7 @@ const HomePage = () => {
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="cta">
-        <div className="container">
-          <div className="cta-content">
-            <h2>Ready to Begin Your Journey?</h2>
-            <p>Join thousands who have transformed their education and career paths</p>
-            {!currentUser ? (
-              <Link to="/register" className="btn btn-primary btn-large">
-                Create Your Account
-              </Link>
-            ) : (
-              <Link to={`/${userRole}`} className="btn btn-primary btn-large">
-                Continue to Dashboard
-              </Link>
-            )}
-          </div>
-        </div>
-      </section>
+      
     </div>
   );
 };
